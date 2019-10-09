@@ -34,3 +34,4 @@ class Verifier(ABC):
     @abstractmethod
     def verify(self, candidate):
         pass
+    
