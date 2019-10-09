@@ -5,15 +5,16 @@ from sklearn.tree import DecisionTreeClassifier
 from model_system import ModelSystem, Learner, Verifier
 from ground_truth import GroundTruth
 from stable_baselines.common.vec_env import DummyVecEnv
-from stable_baselines.deepq.policies import MlpPolicy
-from stable_baselines import DQN
+from stable_baselines.common.policies import MlpPolicy
+from stable_baselines import DQN, PPO2
 
 env = gym.make('CartPole-v1')
+env = DummyVecEnv([lambda: env])
 
 def train_expert_policy():
-    model = DQN(MlpPolicy, env, verbose=1)
-    model.learn(total_timesteps=25000)
-    model.save("deepq_cartpole")
+    model = PPO2(MlpPolicy, env, verbose=1)
+    model.learn(total_timesteps=10000)
+    model.save("ppo2_cartpole")
 
 class CartPoleGroundTruth(GroundTruth):
 
@@ -43,13 +44,32 @@ class CartPoleGroundTruth(GroundTruth):
 
 class CartPoleModelSystem(ModelSystem):
 
-    def __init__(self, learner, verifier):
+    def __init__(self, learner, verifier, groundtruthmodel):
         super().__init__(learner, verifier)
+        self.groundtruthmodel = groundtruthmodel
 
-    def train_candidate(self, input_dataset):
-        inputs, outputs = map(list, zip(*input_dataset))
-        model = self.learner.synthesize_candidate(inputs, outputs)
+    def train_candidate(self):
+        inputs, outputs = map(list, zip(*self.groundtruthmodel.positive_examples))
+        inputs, outputs = np.array(inputs), np.array(outputs)
+        model = self.learner.synthesize_candidate(inputs.squeeze(), outputs.squeeze())
         return model
+
+    def check_candidate(self, candidate, yboundary):
+        verification = self.verifier.verify(candidate, yboundary)
+        return verification
+
+    def get_verifiable_decision_tree(self, max_iters, yboundary):
+        for dummy in range(max_iters):
+            candidate = self.train_candidate()
+            retval = self.check_candidate(candidate, yboundary)
+            if retval == True:
+                return candidate
+            else:
+                print("Adding counterexample")
+                self.groundtruthmodel.query(retval)
+        print("Exhausted max number of iterations without finding verified solution.")
+        return candidate
+
 
 class CartPoleDecisionTreeLearner(Learner):
 
@@ -78,8 +98,9 @@ class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
             self.solver.add(self.states[i] >= -.05)
             self.solver.add(self.states[i] <= .05)
         states, prev_states, actions = self.set_linear_system(candidate, timebound)
-        #print(states.shape)
-        #print(prev_states.shape)
+        states = np.squeeze(states)
+        print(states.shape)
+        print(prev_states.shape)
         #create the linear approximation of the system
         soln, residuals, rank, singular_vals = np.linalg.lstsq(prev_states, states, rcond=None)
         soln = np.transpose(soln)
@@ -141,27 +162,37 @@ class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
         i = 0
         done = False
         while i < timebound or done:
-            action, _states = candidate.predict(obs)
-            newobs = np.append(obs, action)#1 if action == 1 else -1)
+            #action, _states = candidate.predict(obs)
+            action = candidate.predict(obs)
+            newobs = np.append(obs, action.item())#1 if action == 1 else -1)
             prev_states_augmented.append(newobs)
-            action_rhs.append(action)#1 if action == 1 else -1)
+            action_rhs.append(action.item())#1 if action == 1 else -1)
             obs, rewards, done, info = env.step(action)
             states.append(obs)
             i += 1
         return np.array(states), np.array(prev_states_augmented), action_rhs
 
+#train_expert_policy()
 
-#model = DQN.load("deepq_cartpole")
-#verifier = CartPoleDecisionTreeCorrectnessVerifier()
-#verifier.verify(model, .05)
-#
-# obs = env.reset()
+def main():
+    model = PPO2.load("ppo2_cartpole")
+    verifier = CartPoleDecisionTreeCorrectnessVerifier()
+    learner = CartPoleDecisionTreeLearner()
+    groundtruth = CartPoleGroundTruth(model, 1000)
+    system = CartPoleModelSystem(learner, verifier, groundtruth)
+    system.get_verifiable_decision_tree(100, .2)
+
+if __name__ == '__main__':
+    main()
+
+
+    # obs = env.reset()
 # while True:
 #     action, _states = model.predict(obs)
-#     print("yuh:", action, _states)
+#     print("actions:", action, _states)
 #     obs, rewards, dones, info = env.step(action)
 #     newobs = np.append(obs, action)
-#     print(newobs[2])
+#     print(obs, rewards)
 #     env.render()
 #     if dones:
 #         break
