@@ -1,5 +1,6 @@
 import gym
 import numpy as np
+import argparse
 from z3 import *
 from sklearn.tree import DecisionTreeClassifier
 from model_system import ModelSystem, Learner, Verifier
@@ -62,11 +63,12 @@ class CartPoleModelSystem(ModelSystem):
         return verification
 
     def get_verifiable_decision_tree(self, max_iters, yboundary):
-        for dummy in range(max_iters):
+        for itr in range(max_iters):
             print("training decision tree candidate")
             candidate = self.train_candidate()
             retval = self.check_candidate(candidate, yboundary)
             if retval == True:
+                print("required {} verification iterations to get satisfiable solution.".format(itr))
                 return candidate
             else:
                 print("Adding counterexample")
@@ -89,15 +91,16 @@ class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
     def __init__(self):
         #placeholder
         self.states = [0,0,0,0]
-        for i in range(4):
-            self.states[i] = Real('s{}'.format(i))
-        self.solver = Solver()
+
 
     def verify(self, candidate, yboundary, timebound=10):
         # candidate is a decision tree model
         # impose that the starting state must be in [-.05, .05]
         #impose that producing a trajectory from x of length 10 stays
         #less than yboundary
+        for i in range(4):
+            self.states[i] = Real('s{}'.format(i))
+        self.solver = Solver()
         for i in range(4):
             self.solver.add(self.states[i] >= -.05)
             self.solver.add(self.states[i] <= .05)
@@ -137,7 +140,7 @@ class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
                                 soln[i][3] * nexttuples[t][3] + \
                                 soln[i][4] * actions[t])
             nexttuples.append(newnexttuple)
-        #print(self.solver.check())
+        print(self.solver.check())
         if self.solver.check() == sat:
             print('counter example found:')
             mod = self.solver.model()
@@ -179,10 +182,15 @@ class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
 #train_expert_policy()
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train', default=False, help='Train a model before running the rest of the script', type=bool)
+    args = parser.parse_args()
+    if args.train:
+        train_expert_policy()
     model = PPO2.load("ppo2_cartpole")
     verifier = CartPoleDecisionTreeCorrectnessVerifier()
     learner = CartPoleDecisionTreeLearner()
-    groundtruth = CartPoleGroundTruth(model, 1000)
+    groundtruth = CartPoleGroundTruth(model, 100)
     system = CartPoleModelSystem(learner, verifier, groundtruth)
     system.get_verifiable_decision_tree(100, .05)
 
