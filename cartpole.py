@@ -31,14 +31,17 @@ class CartPoleGroundTruth(GroundTruth):
             dones = False
             while not dones:
                 action, _states = self.model.predict(obs)
+                positiveexamples.append((obs, action[0]))
                 obs, rewards, dones, info = env.step(action)
-                positiveexamples.append((obs, action))
+                #print("Action in initial build is:", action)
         return positiveexamples
 
-    def query(self, input, aggregate=True):
-        output = self.model.predict(input)
+    def query(self, inp, aggregate=True):
+        output = self.model.predict(inp)
         if aggregate:
-            self.positive_examples.append((input, output))
+            inp = np.array([list(inp)])
+            print("result of query is :", inp, output[0])
+            self.positive_examples.append((inp, output[0]))
         return output
 
 
@@ -50,8 +53,8 @@ class CartPoleModelSystem(ModelSystem):
 
     def train_candidate(self):
         inputs, outputs = map(list, zip(*self.groundtruthmodel.positive_examples))
-        inputs, outputs = np.array(inputs), np.array(outputs)
-        model = self.learner.synthesize_candidate(inputs.squeeze(), outputs.squeeze())
+        inputs, outputs = np.array(inputs).squeeze(), np.array(outputs).squeeze()
+        model = self.learner.synthesize_candidate(inputs, outputs)
         return model
 
     def check_candidate(self, candidate, yboundary):
@@ -60,6 +63,7 @@ class CartPoleModelSystem(ModelSystem):
 
     def get_verifiable_decision_tree(self, max_iters, yboundary):
         for dummy in range(max_iters):
+            print("training decision tree candidate")
             candidate = self.train_candidate()
             retval = self.check_candidate(candidate, yboundary)
             if retval == True:
@@ -180,7 +184,7 @@ def main():
     learner = CartPoleDecisionTreeLearner()
     groundtruth = CartPoleGroundTruth(model, 1000)
     system = CartPoleModelSystem(learner, verifier, groundtruth)
-    system.get_verifiable_decision_tree(100, .2)
+    system.get_verifiable_decision_tree(100, .05)
 
 if __name__ == '__main__':
     main()
