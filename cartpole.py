@@ -6,16 +6,17 @@ from sklearn.tree import DecisionTreeClassifier
 from model_system import ModelSystem, Learner, Verifier
 from ground_truth import GroundTruth
 from stable_baselines.common.vec_env import DummyVecEnv
-from stable_baselines.common.policies import MlpPolicy
-from stable_baselines import DQN, PPO2
+from stable_baselines.a2c import a2c
+from stable_baselines.common.policies import MlpPolicy, ActorCriticPolicy
+from stable_baselines import DQN, PPO2, A2C
 
 env = gym.make('CartPole-v1')
 env = DummyVecEnv([lambda: env])
 
 def train_expert_policy():
-    model = PPO2(MlpPolicy, env, verbose=1)
-    model.learn(total_timesteps=10000)
-    model.save("ppo2_cartpole")
+    model = a2c.A2C(MlpPolicy, env, verbose=1)
+    model.learn(total_timesteps=30000)
+    model.save("a2c_cartpole")
 
 class CartPoleGroundTruth(GroundTruth):
 
@@ -38,12 +39,16 @@ class CartPoleGroundTruth(GroundTruth):
         return positiveexamples
 
     def query(self, inp, aggregate=True):
-        output = self.model.predict(inp)
-        if aggregate:
-            inp = np.array([list(inp)])
-            print("result of query is :", inp, output[0])
-            self.positive_examples.append((inp, output[0]))
-        return output
+        env.reset()
+        inp = np.array([list(inp)])
+        obs = inp
+        dones = False
+        while not dones:
+            action, _states = self.model.predict(obs)
+            print("result of query is :", obs, action[0])
+            self.positive_examples.append((inp, action[0]))
+            obs, rewards, dones, info = env.step(action)
+        return action
 
 
 class CartPoleModelSystem(ModelSystem):
@@ -180,6 +185,20 @@ class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
         return np.array(states), np.array(prev_states_augmented), action_rhs
 
 #train_expert_policy()
+def evaluate_policy(model, expert=True):
+    reward = 0
+    obs = env.reset()
+    dones = False
+    while not dones:
+        if expert:
+            action, _states = model.predict(obs)
+        else:
+            action = model.predict(obs)
+            action = [action.item()]
+        #print(action)
+        obs, rewards, dones, info = env.step(action)
+        reward += rewards
+    return reward
 
 def main():
     parser = argparse.ArgumentParser()
@@ -187,16 +206,18 @@ def main():
     args = parser.parse_args()
     if args.train:
         train_expert_policy()
-    model = PPO2.load("ppo2_cartpole")
+    model = A2C.load("a2c_cartpole")
     verifier = CartPoleDecisionTreeCorrectnessVerifier()
     learner = CartPoleDecisionTreeLearner()
-    groundtruth = CartPoleGroundTruth(model, 100)
+    groundtruth = CartPoleGroundTruth(model, 150)
     system = CartPoleModelSystem(learner, verifier, groundtruth)
-    system.get_verifiable_decision_tree(100, .05)
+    candidate = system.get_verifiable_decision_tree(100, .15)
+    print(evaluate_policy(candidate, expert=False))
 
 if __name__ == '__main__':
     main()
-
+    #model = A2C.load("a2c_cartpole")
+    #print(evaluate_policy(model))
 
     # obs = env.reset()
 # while True:
