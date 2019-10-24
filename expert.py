@@ -124,8 +124,10 @@ env = gym.make('CartPole-v0')
 env = gym.wrappers.Monitor(env, 'cartpole', force=True)
 policy_grad = policy_gradient()
 value_grad = value_gradient()
+saver = tf.train.Saver()
 sess = tf.InteractiveSession()
 sess.run(tf.global_variables_initializer())
+saver.save(sess, 'expert_model')
 
 # Learn
 results = []
