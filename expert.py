@@ -185,7 +185,7 @@ train_expert(saved=True)
 
 
 # Submit
-if submit and t/100 > 195:
+if submit:
     # Submit to OpenAI Gym
     print("Submitting to gym...")
     gym.scoreboard.api_key = api_key
