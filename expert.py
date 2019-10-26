@@ -119,6 +119,40 @@ def run_episode(env, policy_grad, value_grad, sess, render=False):
     # Done
     return totalreward
 
+def load_model(saver):
+    saver.restore(sess, tf.train.latest_checkpoint('./'))
+    
+
+def train_expert(saved):
+    saver = tf.train.Saver()
+    policy_grad = policy_gradient()
+    value_grad = value_gradient()
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    if saved:
+        load_model(saver)
+    
+    # Learn
+    results = []
+    for i in range(200):
+        reward = run_episode(env, policy_grad, value_grad, sess)
+        results.append(reward)
+        if reward < 200:
+            print("Fail at {}".format(i))
+
+    # Run 100
+    print("Running 100 more.")
+    t = 0
+    for _ in range(100):
+        reward = run_episode(env, policy_grad, value_grad, sess)
+        t += reward
+        results.append(reward)
+    print("Got {}".format(t / 100))
+
+    if not saved:
+        saver.save(sess, 'expert_model')
+
+
 # Go
 env = gym.make('CartPole-v0')
 env = gym.wrappers.Monitor(env, 'cartpole', force=True)
@@ -127,24 +161,28 @@ value_grad = value_gradient()
 saver = tf.train.Saver()
 sess = tf.InteractiveSession()
 sess.run(tf.global_variables_initializer())
-saver.save(sess, 'expert_model')
 
 # Learn
-results = []
-for i in range(200):
-    reward = run_episode(env, policy_grad, value_grad, sess)
-    results.append(reward)
-    if reward < 200:
-        print("Fail at {}".format(i))
+# results = []
+# for i in range(200):
+#     reward = run_episode(env, policy_grad, value_grad, sess)
+#     results.append(reward)
+#     if reward < 200:
+#         print("Fail at {}".format(i))
 
-# Run 100
-print("Running 100 more.")
-t = 0
-for _ in range(100):
-    reward = run_episode(env, policy_grad, value_grad, sess)
-    t += reward
-    results.append(reward)
-print("Got {}".format(t / 100))
+# # Run 100
+# print("Running 100 more.")
+# t = 0
+# for _ in range(100):
+#     reward = run_episode(env, policy_grad, value_grad, sess)
+#     t += reward
+#     results.append(reward)
+# print("Got {}".format(t / 100))
+
+# saver.save(sess, 'expert_model')
+
+train_expert(saved=True)
+
 
 # Submit
 if submit and t/100 > 195:
