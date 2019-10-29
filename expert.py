@@ -80,7 +80,9 @@ def run_episode(env, policy_grad, value_grad, sess, render=False):
         actionblank = np.zeros(2)
         actionblank[action] = 1
         actions.append(actionblank)
-
+        # save states and actions pairs
+        #TODO: save these after training.
+        #state_action_pairs.append((observation, action))
         # Take the action in the environment
         old_observation = observation
         observation, reward, done, info = env.step(action)
@@ -90,11 +92,6 @@ def run_episode(env, policy_grad, value_grad, sess, render=False):
         # Done?
         if done:
             break
-
-    # save states and actions pairs
-    for i in range(len(states)):
-        state_action_pairs.append((states[i], actions[i]))
-
 
     for index, trans in enumerate(transitions):
         obs, action, reward = trans
@@ -141,7 +138,7 @@ all_state_action_pairs = []
 results = []
 for i in range(200):
     reward, state_action_pairs = run_episode(env, policy_grad, value_grad, sess)
-    all_state_action_pairs.append(state_action_pairs)
+    all_state_action_pairs.extend(state_action_pairs)
     results.append(reward)
     if reward < 200:
         print("Fail at {}".format(i))
@@ -151,7 +148,9 @@ print("Running 100 more.")
 t = 0
 for _ in range(100):
     reward, state_action_pairs = run_episode(env, policy_grad, value_grad, sess)
-    all_state_action_pairs.append(state_action_pairs)
+    #print(state_action_pairs)
+    print(len(all_state_action_pairs))
+    all_state_action_pairs.extend(state_action_pairs)
     t += reward
     results.append(reward)
 print("Got {}".format(t / 100))

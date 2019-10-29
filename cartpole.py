@@ -1,9 +1,10 @@
 import gym
 import numpy as np
 import argparse
-# import torch
-# from controllers import PIDController, clip_to_range, ParameterFinder, create_interval
-# from z3 import *
+import torch
+import pickle
+from controllers import PIDController, clip_to_range, ParameterFinder, create_interval
+from z3 import *
 from sklearn.tree import DecisionTreeClassifier
 from model_system import ModelSystem, Learner, Verifier
 from ground_truth import GroundTruth
@@ -17,11 +18,6 @@ import pickle
 
 env = gym.make('CartPole-v1')
 # env = DummyVecEnv([lambda: env])
-
-def train_expert_policy():
-    model = a2c.A2C(MlpPolicy, env, verbose=1)
-    model.learn(total_timesteps=30000)
-    model.save("a2c_cartpole")
 
 class CartPoleGroundTruth(GroundTruth):
 
@@ -267,12 +263,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', default=False, help='Train a model before running the rest of the script', type=bool)
     args = parser.parse_args()
-    if args.train:
-        train_expert_policy()
-    model = A2C.load("a2c_cartpole")
+    positivedata = pickle.load(open("pos_data", "rb"))
+    print(positivedata[0])
     verifier = CartPolePIDCorrectnessVerifier()
     learner = CartPolePIDLearner()
-    initial_positive = generate_initial_dataset(model, 150)
+    initial_positive = positivedata[:1500]
     groundtruth = CartPoleGroundTruth(initial_positive)
     system = CartPoleModelSystem(learner, verifier, groundtruth)
     candidate = system.get_verifiable_decision_tree(50, .15)

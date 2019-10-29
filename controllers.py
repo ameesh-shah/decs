@@ -71,15 +71,16 @@ class ParameterFinder():
         negative_actions_list = [[]] * 4
         negative_actions = []
         for inp in self.positive_inputs:
+            #print(inp)
             for pididx in range(len(positive_actions_list)):
-                positive_actions_list[pididx].append(clip_to_range(self.pids[i].pid_execute(inp[i])))
+                positive_actions_list[pididx].append(clip_to_range(self.pids[pididx].pid_execute(inp[pididx])))
             if sum(positive_actions_list[pididx]) > 0:
                 positive_actions.append(1)
             else:
                 positive_actions.append(0)
         for inp in self.negative_inputs:
             for pididx in range(len(negative_actions_list)):
-                negative_actions_list[pididx].append(clip_to_range(self.pids[i].pid_execute(inp[i])))
+                negative_actions_list[pididx].append(clip_to_range(self.pids[pididx].pid_execute(inp[pididx])))
             #TODO: Choose correct method of usage for the series of PIDs
             if min(negative_actions_list[pididx]) > 0:
                 negative_actions.append(1)
