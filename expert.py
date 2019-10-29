@@ -60,7 +60,6 @@ def run_episode(env, policy_grad, value_grad, sess, render=False):
     totalreward = 0
     states = []
     actions = []
-    state_action_pairs = []
     advantages = []
     transitions = []
     update_vals = []
@@ -80,9 +79,7 @@ def run_episode(env, policy_grad, value_grad, sess, render=False):
         actionblank = np.zeros(2)
         actionblank[action] = 1
         actions.append(actionblank)
-        # save states and actions pairs
-        #TODO: save these after training.
-        #state_action_pairs.append((observation, action))
+
         # Take the action in the environment
         old_observation = observation
         observation, reward, done, info = env.step(action)
@@ -121,6 +118,50 @@ def run_episode(env, policy_grad, value_grad, sess, render=False):
     sess.run(pl_optimizer, feed_dict={pl_state: states, pl_advantages: advantages_vector, pl_actions: actions})
 
     # Done
+    return totalreward
+
+def save_episode(env, policy_grad, value_grad, sess, render=False):
+    pl_calculated, pl_state, pl_actions, pl_advantages, pl_optimizer = policy_grad
+    vl_calculated, vl_state, vl_newvals, vl_optimizer, vl_loss = value_grad
+    observation = env.reset()
+    totalreward = 0
+    states = []
+    actions = []
+    state_action_pairs = []
+    advantages = []
+    transitions = []
+    update_vals = []
+
+    for t in range(200):
+        # Render
+        if render:
+            env.render()
+
+        # Calculate policy
+        obs_vector = np.expand_dims(observation, axis=0)
+        probs = sess.run(pl_calculated,feed_dict={pl_state: obs_vector})
+        action = 0 if random.uniform(0, 1) < probs[0][0] else 1
+
+        # Record the transition
+        states.append(observation)
+        actionblank = np.zeros(2)
+        actionblank[action] = 1
+        actions.append(actionblank)
+
+        # save states and actions pairs        
+        state_action_pairs.append((observation, action))
+
+        # Take the action in the environment
+        old_observation = observation
+        observation, reward, done, info = env.step(action)
+        transitions.append((old_observation, action, reward))
+        totalreward += reward
+
+        # Done?
+        if done:
+            break
+
+    # Done
     return totalreward, state_action_pairs
 
 
@@ -134,11 +175,9 @@ saver = tf.train.Saver()
 sess.run(tf.global_variables_initializer())
 
 
-all_state_action_pairs = []
 results = []
 for i in range(200):
-    reward, state_action_pairs = run_episode(env, policy_grad, value_grad, sess)
-    all_state_action_pairs.extend(state_action_pairs)
+    reward = run_episode(env, policy_grad, value_grad, sess)
     results.append(reward)
     if reward < 200:
         print("Fail at {}".format(i))
@@ -147,15 +186,23 @@ for i in range(200):
 print("Running 100 more.")
 t = 0
 for _ in range(100):
-    reward, state_action_pairs = run_episode(env, policy_grad, value_grad, sess)
-    #print(state_action_pairs)
-    print(len(all_state_action_pairs))
-    all_state_action_pairs.extend(state_action_pairs)
+    reward = run_episode(env, policy_grad, value_grad, sess)
     t += reward
     results.append(reward)
 print("Got {}".format(t / 100))
 
 # save state and action pairs to a file pos_data
+
+all_state_action_pairs = []
+saved_results = []
+t = 0
+for _ in range(100):
+    reward, state_action_pairs = save_episode(env, policy_grad, value_grad, sess)
+    all_state_action_pairs.extend(state_action_pairs)
+    t += reward
+    saved_results.append(reward)
+print("Saved got {}".format(t / 100))
+
 pos_data = open("pos_data", 'ab')
 pickle.dump(all_state_action_pairs, pos_data)
 
