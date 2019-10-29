@@ -1,6 +1,8 @@
 import gym
 import numpy as np
 import argparse
+import torch
+from controllers import PIDController, clip_to_range, ParameterFinder, create_interval
 from z3 import *
 from sklearn.tree import DecisionTreeClassifier
 from model_system import ModelSystem, Learner, Verifier
@@ -20,35 +22,14 @@ def train_expert_policy():
 
 class CartPoleGroundTruth(GroundTruth):
 
-    def __init__(self, model, initlen):
-        self.model = model
-        self.initlen = initlen
-        positive_examples = self.generate_initial_dataset()
-        super().__init__(True, positive_examples)
+    def __init__(self, positive_exs, negative_exs=[]):
+        super().__init__(False, positive_exs, negative_exs)
 
-    def generate_initial_dataset(self):
-        positiveexamples = []
-        while len(positiveexamples) < self.initlen:
-            obs = env.reset()
-            dones = False
-            while not dones:
-                action, _states = self.model.predict(obs)
-                positiveexamples.append((obs, action[0]))
-                obs, rewards, dones, info = env.step(action)
-                #print("Action in initial build is:", action)
-        return positiveexamples
-
-    def query(self, inp, aggregate=True):
-        env.reset()
-        inp = np.array([list(inp)])
-        obs = inp
-        dones = False
-        while not dones:
-            action, _states = self.model.predict(obs)
-            print("result of query is :", obs, action[0])
-            self.positive_examples.append((inp, action[0]))
-            obs, rewards, dones, info = env.step(action)
-        return action
+    def aggregate_negative_examples(self, negative_examples, current_model):
+        #TODO: GET TRAJECTORIES ON THIS?
+        for example in negative_examples:
+            exampleout = current_model.predict(example)
+            self.negative_examples.append((example, exampleout))
 
 
 class CartPoleModelSystem(ModelSystem):
@@ -58,18 +39,16 @@ class CartPoleModelSystem(ModelSystem):
         self.groundtruthmodel = groundtruthmodel
 
     def train_candidate(self):
-        inputs, outputs = map(list, zip(*self.groundtruthmodel.positive_examples))
-        inputs, outputs = np.array(inputs).squeeze(), np.array(outputs).squeeze()
-        model = self.learner.synthesize_candidate(inputs, outputs)
+        model = self.learner.synthesize_candidate(self.groundtruthmodel)
         return model
 
     def check_candidate(self, candidate, yboundary):
-        verification = self.verifier.verify(candidate, yboundary)
+        verification = self.verifier.verify(self.learner, yboundary)
         return verification
 
     def get_verifiable_decision_tree(self, max_iters, yboundary):
         for itr in range(max_iters):
-            print("training decision tree candidate")
+            print("training next candidate")
             candidate = self.train_candidate()
             retval = self.check_candidate(candidate, yboundary)
             if retval == True:
@@ -77,7 +56,7 @@ class CartPoleModelSystem(ModelSystem):
                 return candidate
             else:
                 print("Adding counterexample")
-                self.groundtruthmodel.query(retval)
+                self.groundtruthmodel.aggregate_negative_examples(retval, self.learner)
         print("Exhausted max number of iterations without finding verified solution.")
         return candidate
 
@@ -91,14 +70,68 @@ class CartPoleDecisionTreeLearner(Learner):
         self.model.fit(positive_x, positive_y)
         return self.model
 
-class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
+class CartPolePIDLearner(Learner):
+
+    def __init__(self, num_sensors=4):
+        """
+        :param initial_values: a list of tuples (or lists) that
+        are the initial values for each PID controller
+        """
+        initial_values = [[0.0,0.0,0.0]] * num_sensors
+        self.pids = []
+        self.num_pids = len(initial_values)
+        for initial in initial_values:
+            self.pids.append(PIDController(pid_constants=initial))
+
+    def synthesize_candidate(self, groundtruthmodel):
+        positive_exs, negative_exs = groundtruthmodel.positive_examples, groundtruthmodel.negative_examples
+        pinputs, poutputs = map(list, zip(*positive_exs))
+        pinputs, poutputs = np.array(pinputs).squeeze(), np.array(poutputs).squeeze()
+        if len(negative_exs) != 0:
+            ninputs, noutputs = map(list, zip(*negative_exs))
+            ninputs, noutputs = np.array(ninputs).squeeze(), np.array(noutputs).squeeze()
+        else:
+            ninputs = []
+            noutputs = []
+        paramfinder = ParameterFinder(pinputs, poutputs, ninputs, noutputs, self.pids)
+        pid_ranges = []
+        for i in range(len(self.pids)):
+            pid_ranges.append(tuple([create_interval(self.pids[i].pid_constants[const], 0.1) for const in range(3)]))
+        new_params = paramfinder.pid_parameters(pid_ranges)
+        print("Found new parameters. Updating")
+        for idx in range(len(self.pids)):
+            templst = []
+            for j in ['p', 'i', 'd']:
+                templst.append(new_params['max_params'][j + str(idx + 1)])
+            self.pids[idx].update_parameters(tuple(templst))
+        return self.pids
+
+    def predict(self, obs):
+        actions = []
+        for i in range(len(obs)):
+            #print(obs[i])
+            thing = self.pids[i].pid_execute(obs[i])
+            #print(thing)
+            val = clip_to_range(self.pids[i].pid_execute(obs[i]))
+            #print(val)
+            actions.append(val)
+        #TODO: Choose correct method of usage for the series of PIDs
+        if min(actions) > 0.0:
+            return 1
+        else:
+            return 0
+
+
+
+
+class CartPolePIDCorrectnessVerifier(Verifier):
 
     def __init__(self):
         #placeholder
         self.states = [0,0,0,0]
 
 
-    def verify(self, candidate, yboundary, timebound=10):
+    def verify(self, candidate, yboundary, timebound=10, num_counters = 5):
         # candidate is a decision tree model
         # impose that the starting state must be in [-.05, .05]
         #impose that producing a trajectory from x of length 10 stays
@@ -147,15 +180,25 @@ class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
             nexttuples.append(newnexttuple)
         print(self.solver.check())
         if self.solver.check() == sat:
-            print('counter example found:')
-            mod = self.solver.model()
-            #TODO: a less hacky way to convert to python values
-            es0 = int('{}'.format(mod[self.states[0]].numerator())) / int('{}'.format(mod[self.states[0]].denominator()))
-            es1 = int('{}'.format(mod[self.states[1]].numerator())) / int('{}'.format(mod[self.states[1]].denominator()))
-            es2 = int('{}'.format(mod[self.states[2]].numerator())) / int('{}'.format(mod[self.states[2]].denominator()))
-            es3 = int('{}'.format(mod[self.states[3]].numerator())) / int('{}'.format(mod[self.states[3]].denominator()))
-            print(es0, es1, es2, es3)
-            return (es0, es1, es2, es3)
+            #add counterexamples
+            counters = []
+            is_sat = self.solver.check()
+            while is_sat != sat and len(counters) < num_counters:
+                print('counter example found:')
+                mod = self.solver.model()
+                #TODO: a less hacky way to convert to python values
+                es0 = int('{}'.format(mod[self.states[0]].numerator())) / int('{}'.format(mod[self.states[0]].denominator()))
+                es1 = int('{}'.format(mod[self.states[1]].numerator())) / int('{}'.format(mod[self.states[1]].denominator()))
+                es2 = int('{}'.format(mod[self.states[2]].numerator())) / int('{}'.format(mod[self.states[2]].denominator()))
+                es3 = int('{}'.format(mod[self.states[3]].numerator())) / int('{}'.format(mod[self.states[3]].denominator()))
+                print(es0, es1, es2, es3)
+                curr_counter = (es0, es1, es2, es3)
+                counters.append(curr_counter)
+                #add these as constraints to get a diff counterexample
+                for i in range(4):
+                    self.solver.add(self.states[i] != curr_counter[i])
+                is_sat = self.solver.check()
+            return counters
         else:
             print('Correctness of cartpole verified.')
             return True
@@ -175,11 +218,11 @@ class CartPoleDecisionTreeCorrectnessVerifier(Verifier):
         done = False
         while i < timebound or done:
             #action, _states = candidate.predict(obs)
-            action = candidate.predict(obs)
-            newobs = np.append(obs, action.item())#1 if action == 1 else -1)
+            action = candidate.predict(obs[0])
+            newobs = np.append(obs, action)#1 if action == 1 else -1)
             prev_states_augmented.append(newobs)
-            action_rhs.append(action.item())#1 if action == 1 else -1)
-            obs, rewards, done, info = env.step(action)
+            action_rhs.append(action)#1 if action == 1 else -1)
+            obs, rewards, done, info = env.step([action])
             states.append(obs)
             i += 1
         return np.array(states), np.array(prev_states_augmented), action_rhs
@@ -191,14 +234,28 @@ def evaluate_policy(model, expert=True):
     dones = False
     while not dones:
         if expert:
-            action, _states = model.predict(obs)
+            action, _states = model.predict(obs[0])
         else:
-            action = model.predict(obs)
-            action = [action.item()]
+            action = model.predict(obs[0])
+            action = [action]
         #print(action)
         obs, rewards, dones, info = env.step(action)
         reward += rewards
     return reward
+
+def generate_initial_dataset(model, numexs):
+    positiveexamples = []
+    while len(positiveexamples) < numexs:
+        obs = env.reset()
+        dones = False
+        while not dones:
+            action, _states = model.predict(obs)
+            positiveexamples.append((obs, action[0]))
+            obs, rewards, dones, info = env.step(action)
+            #print("Action in initial build is:", action)
+    return positiveexamples
+
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -207,12 +264,13 @@ def main():
     if args.train:
         train_expert_policy()
     model = A2C.load("a2c_cartpole")
-    verifier = CartPoleDecisionTreeCorrectnessVerifier()
-    learner = CartPoleDecisionTreeLearner()
-    groundtruth = CartPoleGroundTruth(model, 150)
+    verifier = CartPolePIDCorrectnessVerifier()
+    learner = CartPolePIDLearner()
+    initial_positive = generate_initial_dataset(model, 150)
+    groundtruth = CartPoleGroundTruth(initial_positive)
     system = CartPoleModelSystem(learner, verifier, groundtruth)
-    candidate = system.get_verifiable_decision_tree(100, .15)
-    print(evaluate_policy(candidate, expert=False))
+    candidate = system.get_verifiable_decision_tree(50, .15)
+    print(evaluate_policy(learner, expert=False))
 
 if __name__ == '__main__':
     main()
