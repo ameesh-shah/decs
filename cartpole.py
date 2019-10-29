@@ -1,19 +1,22 @@
 import gym
 import numpy as np
 import argparse
-import torch
-from controllers import PIDController, clip_to_range, ParameterFinder, create_interval
-from z3 import *
+# import torch
+# from controllers import PIDController, clip_to_range, ParameterFinder, create_interval
+# from z3 import *
 from sklearn.tree import DecisionTreeClassifier
 from model_system import ModelSystem, Learner, Verifier
 from ground_truth import GroundTruth
+"""
 from stable_baselines.common.vec_env import DummyVecEnv
 from stable_baselines.a2c import a2c
 from stable_baselines.common.policies import MlpPolicy, ActorCriticPolicy
 from stable_baselines import DQN, PPO2, A2C
+"""
+import pickle
 
 env = gym.make('CartPole-v1')
-env = DummyVecEnv([lambda: env])
+# env = DummyVecEnv([lambda: env])
 
 def train_expert_policy():
     model = a2c.A2C(MlpPolicy, env, verbose=1)
@@ -257,6 +260,9 @@ def generate_initial_dataset(model, numexs):
 
 
 
+
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', default=False, help='Train a model before running the rest of the script', type=bool)
@@ -271,9 +277,20 @@ def main():
     system = CartPoleModelSystem(learner, verifier, groundtruth)
     candidate = system.get_verifiable_decision_tree(50, .15)
     print(evaluate_policy(learner, expert=False))
+    candidate = system.get_verifiable_decision_tree(100, .15)
+    print(evaluate_policy(candidate, expert=False))
+
+    # load positive data from expert.py
+    file = open("pos_data", "rb")
+    pos_data = pickle.load(file)
+
+
+
+
 
 if __name__ == '__main__':
     main()
+# expert.train_expert(saved=True)
     #model = A2C.load("a2c_cartpole")
     #print(evaluate_policy(model))
 
