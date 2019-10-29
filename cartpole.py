@@ -275,12 +275,6 @@ def main():
     candidate = system.get_verifiable_decision_tree(100, .15)
     print(evaluate_policy(candidate, expert=False))
 
-    # load positive data from expert.py
-    file = open("pos_data", "rb")
-    pos_data = pickle.load(file)
-
-
-
 
 
 if __name__ == '__main__':
