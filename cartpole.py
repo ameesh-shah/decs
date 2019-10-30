@@ -108,9 +108,6 @@ class CartPolePIDLearner(Learner):
     def predict(self, obs):
         actions = []
         for i in range(len(obs)):
-            #print(obs[i])
-            thing = self.pids[i].pid_execute(obs[i])
-            #print(thing)
             val = clip_to_range(self.pids[i].pid_execute(obs[i]))
             #print(val)
             actions.append(val)
@@ -153,7 +150,7 @@ class CartPolePIDCorrectnessVerifier(Verifier):
         #solution is of shape 4, 5
         #now, use the solution as a linear approximation and verify by computing next state
         nexttuples = [self.states]
-        for t in range(timebound):
+        for t in range(min(timebound, len(actions))):
             newnexttuple = []
             self.solver.add(Or(soln[2][0] * nexttuples[t][0] + \
                             soln[2][1] * nexttuples[t][1] + \
@@ -268,7 +265,7 @@ def main():
     print("single tuple is: ", positivedata[0])
     verifier = CartPolePIDCorrectnessVerifier()
     learner = CartPolePIDLearner()
-    initial_positive = positivedata[:750]
+    initial_positive = positivedata[:1050]
     groundtruth = CartPoleGroundTruth(initial_positive)
     system = CartPoleModelSystem(learner, verifier, groundtruth)
     candidate = system.get_verifiable_decision_tree(50, .15)
