@@ -237,7 +237,7 @@ def evaluate_policy(model, expert=True):
             action, _states = model.predict(obs)
         else:
             action = model.predict(obs)
-            action = [action]
+            #action = [action]
         #print(action)
         obs, rewards, dones, info = env.step(action)
         reward += rewards
@@ -273,8 +273,7 @@ def main():
     system = CartPoleModelSystem(learner, verifier, groundtruth)
     candidate = system.get_verifiable_decision_tree(50, .15)
     print(evaluate_policy(learner, expert=False))
-    candidate = system.get_verifiable_decision_tree(100, .15)
-    print(evaluate_policy(candidate, expert=False))
+
 
 
 

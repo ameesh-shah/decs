@@ -90,14 +90,14 @@ class ParameterFinder():
         return loss * -1.0
 
     def pid_parameters(self,  pid_range_list):
-        gp_params = {"alpha": 1e-5, "n_restarts_optimizer": 3}  # Optimizer configuration
+        gp_params = {"alpha": 1e-5, "n_restarts_optimizer": 1}  # Optimizer configuration
         print('Optimizing Controller')
         bo_pid = BayesianOptimization(self.find_distance_paras,
                                         {'p1': pid_range_list[0][0], 'i1': pid_range_list[0][1],'d1': pid_range_list[0][2],
                                          'p2': pid_range_list[1][0], 'i2': pid_range_list[1][1], 'd2': pid_range_list[1][2],
                                          'p3': pid_range_list[2][0], 'i3': pid_range_list[2][1], 'd3': pid_range_list[2][2],
                                          'p4': pid_range_list[3][0], 'i4': pid_range_list[3][1], 'd4': pid_range_list[3][2]}, verbose=0)
-        bo_pid.maximize(init_points=10, n_iter=2, kappa=5, **gp_params)
+        bo_pid.maximize(init_points=1, n_iter=1, kappa=5, **gp_params)
         return bo_pid.res['max']
 
 def dual_loss(pos_truth, pos_model, neg_truth, neg_model, const=1.0):
