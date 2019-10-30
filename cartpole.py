@@ -95,7 +95,7 @@ class CartPolePIDLearner(Learner):
         paramfinder = ParameterFinder(pinputs, poutputs, ninputs, noutputs, self.pids)
         pid_ranges = []
         for i in range(len(self.pids)):
-            pid_ranges.append(tuple([create_interval(self.pids[i].pid_constants[const], 0.1) for const in range(3)]))
+            pid_ranges.append(tuple([create_interval(self.pids[i].pid_constants[const], 0.5) for const in range(3)]))
         new_params = paramfinder.pid_parameters(pid_ranges)
         print("Found new parameters. Updating")
         for idx in range(len(self.pids)):
@@ -215,13 +215,14 @@ class CartPolePIDCorrectnessVerifier(Verifier):
         #states.append(obs)
         i = 0
         done = False
-        while i < timebound or done:
+        while i < timebound and not done:
             #action, _states = candidate.predict(obs)
-            action = candidate.predict(obs[0])
+            action = candidate.predict(obs)
             newobs = np.append(obs, action)#1 if action == 1 else -1)
             prev_states_augmented.append(newobs)
             action_rhs.append(action)#1 if action == 1 else -1)
-            obs, rewards, done, info = env.step([action])
+            #print("action is: ", action)
+            obs, rewards, done, info = env.step(action)
             states.append(obs)
             i += 1
         return np.array(states), np.array(prev_states_augmented), action_rhs
@@ -233,9 +234,9 @@ def evaluate_policy(model, expert=True):
     dones = False
     while not dones:
         if expert:
-            action, _states = model.predict(obs[0])
+            action, _states = model.predict(obs)
         else:
-            action = model.predict(obs[0])
+            action = model.predict(obs)
             action = [action]
         #print(action)
         obs, rewards, dones, info = env.step(action)
@@ -263,11 +264,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', default=False, help='Train a model before running the rest of the script', type=bool)
     args = parser.parse_args()
-    positivedata = pickle.load(open("pos_data", "rb"))
-    print(positivedata[0])
+    positivedata = pickle.load(open("pos_data_final", "rb"))
+    print("single tuple is: ", positivedata[0])
     verifier = CartPolePIDCorrectnessVerifier()
     learner = CartPolePIDLearner()
-    initial_positive = positivedata[:1500]
+    initial_positive = positivedata[:750]
     groundtruth = CartPoleGroundTruth(initial_positive)
     system = CartPoleModelSystem(learner, verifier, groundtruth)
     candidate = system.get_verifiable_decision_tree(50, .15)

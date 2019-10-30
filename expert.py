@@ -203,9 +203,9 @@ for _ in range(100):
     saved_results.append(reward)
 print("Saved got {}".format(t / 100))
 
-pos_data = open("pos_data", 'ab')
+pos_data = open("pos_data_final", 'wb')
 pickle.dump(all_state_action_pairs, pos_data)
-
+pos_data.close()
 
 # Submit
 if submit and t/100 > 195:
